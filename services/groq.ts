@@ -1,8 +1,8 @@
 /**
- * @fileoverview Server-side Groq API service (Llama 3.1 8B).
+ * @fileoverview Server-side Groq API service (Llama 3.1 8B Instant).
  *
  * Provides the AI Coach chat functionality.
- * Runs exclusively server-side — API key never reaches the browser.
+ * Runs exclusively in Next.js API routes — the API key never reaches the browser.
  */
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -22,23 +22,28 @@ Rules:
 - If you don't know something, say so honestly
 - Focus on what individuals CAN do, not what they've done wrong`;
 
+/** A single turn in the conversation history sent to Groq. */
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
 }
 
+/** Shape of the raw Groq API response (OpenAI-compatible). */
+interface GroqApiResponse {
+  choices?: Array<{
+    message?: { content?: string };
+  }>;
+}
+
 /**
- * Sends a chat message to Groq and returns the assistant's response.
+ * Sends a chat message to Groq Llama 3.1 8B and returns the assistant's response.
  *
  * @param message - The user's latest message.
- * @param history - Previous conversation turns for context (max 10).
+ * @param history - Previous conversation turns for context (at most 10 are sent).
  * @returns The assistant's response text.
- * @throws Error if the API key is missing or the request fails.
+ * @throws {Error} If `GROQ_API_KEY` is missing, the request fails, or the response is empty.
  */
-export async function chatWithGroq(
-  message: string,
-  history: ChatTurn[]
-): Promise<string> {
+export async function chatWithGroq(message: string, history: ChatTurn[]): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY is not configured');
 
@@ -49,7 +54,7 @@ export async function chatWithGroq(
   ];
 
   const response = await fetch(GROQ_API_URL, {
-    method: 'POST',
+    method:  'POST',
     headers: {
       'Content-Type':  'application/json',
       'Authorization': `Bearer ${apiKey}`,
@@ -64,15 +69,11 @@ export async function chatWithGroq(
   });
 
   if (!response.ok) {
-    const status = response.status;
-    if (status === 429) throw new Error('RATE_LIMITED');
-    throw new Error(`Groq API error: ${status}`);
+    if (response.status === 429) throw new Error('RATE_LIMITED');
+    throw new Error(`Groq API error: ${response.status}`);
   }
 
-  const data = await response.json() as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
+  const data = await response.json() as GroqApiResponse;
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('Groq returned empty response');
 

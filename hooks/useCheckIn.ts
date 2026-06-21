@@ -1,31 +1,41 @@
 'use client';
 
 /**
- * @fileoverview Hook encapsulating the check-in submission flow.
- * Handles the API call, local state, and error recovery.
+ * @fileoverview Hook encapsulating the daily check-in submission flow.
+ *
+ * Handles the API call, error recovery, and local store update.
+ * On AI failure, the hook falls back to the local carbon estimator so
+ * the user always receives a result.
  */
 
 import { useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { CheckInAnswers, CheckInRecord, CarbonAnalysis } from '@/types';
+import type { CheckInAnswers, CheckInRecord, CarbonAnalysis } from '@/types';
 import { useCarbonStore } from '@/store/useCarbonStore';
 import { buildFallbackAnalysis } from '@/services/gemini';
 
-interface UseCheckInReturn {
-  submitting:  boolean;
-  error:       string | null;
-  submit:      (answers: CheckInAnswers, date: string) => Promise<CheckInRecord | null>;
+/** Return type of {@link useCheckIn}. */
+export interface UseCheckInReturn {
+  /** Whether a submission is in progress. */
+  submitting: boolean;
+  /** Non-fatal error message (e.g. AI unavailable), or `null`. */
+  error: string | null;
+  /**
+   * Submits the check-in answers and returns the resulting record.
+   * Always resolves — never rejects. Returns `null` only on unexpected errors.
+   */
+  submit: (answers: CheckInAnswers, date: string) => Promise<CheckInRecord | null>;
 }
 
 /**
- * Manages the daily check-in submission.
+ * Manages the daily check-in submission lifecycle.
  *
- * @returns submitting state, error message, and submit function.
+ * @returns Submitting state, non-fatal error, and submit callback.
  */
 export function useCheckIn(): UseCheckInReturn {
   const { addCheckIn } = useCarbonStore();
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]           = useState<string | null>(null);
 
   const submit = useCallback(
     async (answers: CheckInAnswers, date: string): Promise<CheckInRecord | null> => {
@@ -49,8 +59,8 @@ export function useCheckIn(): UseCheckInReturn {
         const data = await res.json() as { analysis: CarbonAnalysis };
         analysis = data.analysis;
       } catch (err) {
-        // Use local fallback so the user always gets a result
-        console.warn('[useCheckIn] AI failed, using local fallback:', err);
+        // Use the local estimator so the user always sees a result
+        console.warn('[useCheckIn] AI unavailable, using local fallback:', err);
         analysis = buildFallbackAnalysis(answers);
         setError('AI analysis unavailable — showing estimated results.');
       }

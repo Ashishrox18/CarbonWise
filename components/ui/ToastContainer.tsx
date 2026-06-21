@@ -1,22 +1,31 @@
 'use client';
 
+/**
+ * @fileoverview Toast notification container rendered in the bottom-right corner.
+ */
+
 import { memo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, XCircle, Info, X } from 'lucide-react';
-import { Toast } from '@/hooks/useToast';
+import type { Toast } from '@/hooks/useToast';
 
 interface ToastContainerProps {
-  toasts:   Toast[];
+  /** All currently visible toasts. */
+  toasts: Toast[];
+  /** Called when the user clicks the dismiss button on a toast. */
   onDismiss: (id: string) => void;
 }
 
-const icons = {
+const TOAST_ICONS: Record<Toast['variant'], React.ReactNode> = {
   success: <CheckCircle className="w-4 h-4 text-green-500" />,
   error:   <XCircle    className="w-4 h-4 text-red-500"   />,
   info:    <Info       className="w-4 h-4 text-blue-500"  />,
 };
 
-/** Renders all active toast notifications in the bottom-right corner. */
+/**
+ * Renders all active toast notifications in a fixed bottom-right overlay.
+ * Uses `aria-live="polite"` so screen readers announce new toasts.
+ */
 const ToastContainer = memo(({ toasts, onDismiss }: ToastContainerProps) => (
   <div
     className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 w-80"
@@ -34,7 +43,7 @@ const ToastContainer = memo(({ toasts, onDismiss }: ToastContainerProps) => (
           className="flex items-start gap-3 p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg"
           role="alert"
         >
-          {icons[toast.variant]}
+          {TOAST_ICONS[toast.variant]}
           <p className="flex-1 text-sm text-gray-800 dark:text-gray-100">{toast.message}</p>
           <button
             onClick={() => onDismiss(toast.id)}

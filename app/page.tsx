@@ -1,25 +1,30 @@
 'use client';
 
+/**
+ * @fileoverview Home page — landing, check-in form, and results view.
+ */
+
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Leaf, TrendingDown, Shield, Zap, ArrowRight, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import type { CheckInAnswers, CheckInRecord } from '@/types';
 import { useCarbonStore } from '@/store/useCarbonStore';
 import { useCheckIn } from '@/hooks/useCheckIn';
 import { useToast } from '@/hooks/useToast';
 import Button from '@/components/ui/Button';
-import { Card, CardContent } from '@/components/ui/Card';
 import Skeleton from '@/components/ui/Skeleton';
 import ToastContainer from '@/components/ui/ToastContainer';
+import AppHeader from '@/components/layout/AppHeader';
+import LandingHero from '@/components/features/LandingHero';
 
 // Dynamic imports for heavy feature components
-const CheckInForm    = dynamic(() => import('@/components/features/CheckInForm'),    { loading: () => <FormSkeleton /> });
-const AnalysisCard   = dynamic(() => import('@/components/features/AnalysisCard'),   { loading: () => <AnalysisSkeleton /> });
+const CheckInForm     = dynamic(() => import('@/components/features/CheckInForm'),    { loading: () => <FormSkeleton /> });
+const AnalysisCard    = dynamic(() => import('@/components/features/AnalysisCard'),   { loading: () => <AnalysisSkeleton /> });
 const DailyChallenges = dynamic(() => import('@/components/features/DailyChallenges'), { ssr: false });
 
-// ─── Skeleton helpers ─────────────────────────────────────────────
+// ─── Skeleton Placeholders ────────────────────────────────────────
 
 function FormSkeleton() {
   return (
@@ -41,80 +46,32 @@ function AnalysisSkeleton() {
   );
 }
 
-// ─── Landing Hero ──────────────────────────────────────────────────
-
-function LandingHero({ onStart }: { onStart: () => void }) {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className="flex flex-col items-center text-center gap-8 py-16 px-4"
-      aria-labelledby="hero-title"
-    >
-      {/* Logo */}
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-2xl bg-brand-600 flex items-center justify-center shadow-lg">
-          <Leaf className="w-6 h-6 text-white" aria-hidden="true" />
-        </div>
-        <span className="text-2xl font-bold text-gray-900 dark:text-white">CarbonWise</span>
-      </div>
-
-      {/* Headline */}
-      <div className="max-w-xl">
-        <h1 id="hero-title" className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white leading-tight">
-          Small daily actions.<br />
-          <span className="text-brand-500">Big climate impact.</span>
-        </h1>
-        <p className="mt-4 text-lg text-gray-600 dark:text-gray-300 leading-relaxed">
-          Understand your carbon footprint in under 3 minutes and get AI-powered recommendations tailored to your lifestyle.
-        </p>
-      </div>
-
-      <Button onClick={onStart} size="lg" rightIcon={<ArrowRight className="w-5 h-5" />}>
-        Start Today's Check-In
-      </Button>
-
-      {/* Value props */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full max-w-2xl mt-4">
-        {[
-          { icon: <Zap     className="w-5 h-5 text-amber-500"  />, label: 'Under 3 minutes',       desc: 'Quick daily habit' },
-          { icon: <TrendingDown className="w-5 h-5 text-brand-500" />, label: 'AI-powered insights',  desc: 'Personalised for you' },
-          { icon: <Shield  className="w-5 h-5 text-blue-500"   />, label: '100% private',           desc: 'Stored locally only' },
-        ].map(({ icon, label, desc }) => (
-          <Card key={label}>
-            <CardContent className="flex flex-col items-center gap-2 py-5 text-center">
-              <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center">
-                {icon}
-              </div>
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{label}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{desc}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </motion.section>
-  );
-}
-
-// ─── Main Page ────────────────────────────────────────────────────
+// ─── Page View State ──────────────────────────────────────────────
 
 type PageView = 'landing' | 'checkin' | 'result';
 
+const NAV_LINKS = [
+  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/coach',     label: 'AI Coach' },
+];
+
+// ─── Main Page ────────────────────────────────────────────────────
+
+/** Home page — manages the three-view flow: landing → check-in → results. */
 export default function HomePage() {
-  const today = useMemo(() => new Date().toISOString().split('T')[0], []);
-  const { loadData, todayCheckIn } = useCarbonStore();
+  const today                                 = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const { loadData, todayCheckIn }            = useCarbonStore();
   const { submitting, error: checkInError, submit } = useCheckIn();
   const { toasts, show: showToast, dismiss: dismissToast } = useToast();
 
-  const [view, setView] = useState<PageView>('landing');
+  const [view,   setView]   = useState<PageView>('landing');
   const [result, setResult] = useState<CheckInRecord | null>(null);
 
   useEffect(() => {
     loadData(today);
   }, [loadData, today]);
 
-  // If already checked in today, jump straight to result
+  // If already checked in today, jump straight to the result view
   useEffect(() => {
     if (todayCheckIn) {
       setResult(todayCheckIn);
@@ -122,7 +79,7 @@ export default function HomePage() {
     }
   }, [todayCheckIn]);
 
-  // Surface AI errors as toasts (non-blocking)
+  // Surface non-fatal AI errors as informational toasts
   useEffect(() => {
     if (checkInError) showToast(checkInError, 'info');
   }, [checkInError, showToast]);
@@ -145,25 +102,8 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Nav */}
-      <header className="sticky top-0 z-40 bg-white/90 dark:bg-gray-950/90 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800">
-        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 font-semibold text-gray-900 dark:text-white hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
-            <Leaf className="w-5 h-5 text-brand-600" aria-hidden="true" />
-            CarbonWise
-          </Link>
-          <nav className="flex items-center gap-1" aria-label="Main navigation">
-            <Link href="/dashboard" className="text-sm text-gray-600 dark:text-gray-300 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-1.5 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors">
-              Dashboard
-            </Link>
-            <Link href="/coach" className="text-sm text-gray-600 dark:text-gray-300 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-1.5 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors">
-              AI Coach
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <AppHeader navLinks={NAV_LINKS} />
 
-      {/* Page Content */}
       <div className="max-w-2xl mx-auto px-4 py-8">
         <AnimatePresence mode="wait">
           {view === 'landing' && (
@@ -181,7 +121,9 @@ export default function HomePage() {
               className="flex flex-col gap-4"
             >
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Today's Carbon Check-In</h1>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                  Today&apos;s Carbon Check-In
+                </h1>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Answer 5 quick questions about your day.
                 </p>
@@ -202,16 +144,22 @@ export default function HomePage() {
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Your Results</h1>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    {new Date(today).toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}
+                    {new Date(today).toLocaleDateString('en', {
+                      weekday: 'long', month: 'long', day: 'numeric',
+                    })}
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={handleRedo} leftIcon={<RotateCcw className="w-4 h-4" />}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRedo}
+                  leftIcon={<RotateCcw className="w-4 h-4" />}
+                >
                   Redo
                 </Button>
               </div>
 
               <AnalysisCard analysis={result.analysis} />
-
               <DailyChallenges date={today} />
 
               <div className="flex gap-3 pt-2">
@@ -231,3 +179,5 @@ export default function HomePage() {
     </div>
   );
 }
+
+

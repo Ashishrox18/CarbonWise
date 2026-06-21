@@ -1,16 +1,39 @@
-import { memo, ReactNode } from 'react';
+/**
+ * @fileoverview Empty state placeholder for sections with no data.
+ */
+
+import { memo, type ReactNode } from 'react';
 
 interface EmptyStateProps {
-  icon:        ReactNode;
-  title:       string;
+  /** Icon or emoji displayed prominently in the centre. */
+  icon: ReactNode;
+  /** Short title describing why the section is empty. */
+  title: string;
+  /** Longer description with guidance on how to populate the section. */
   description: string;
-  action?:     ReactNode;
+  /** Optional CTA button or link rendered below the description. */
+  action?: ReactNode;
 }
 
-/** Beautiful empty state for dashboard sections with no data yet. */
+/**
+ * Centred empty state with icon, title, description, and optional action.
+ * Used in dashboard sections before the user has any check-in data.
+ *
+ * @example
+ * ```tsx
+ * <EmptyState
+ *   icon={<TrendingDown className="w-8 h-8" />}
+ *   title="No data yet"
+ *   description="Complete your first check-in to see your progress."
+ * />
+ * ```
+ */
 const EmptyState = memo(({ icon, title, description, action }: EmptyStateProps) => (
   <div className="flex flex-col items-center justify-center py-16 px-6 text-center gap-4">
-    <div className="w-16 h-16 rounded-2xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-3xl" aria-hidden="true">
+    <div
+      className="w-16 h-16 rounded-2xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-3xl"
+      aria-hidden="true"
+    >
       {icon}
     </div>
     <div>

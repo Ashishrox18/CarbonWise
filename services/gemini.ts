@@ -1,24 +1,42 @@
 /**
  * @fileoverview Server-side Gemini API service.
  *
- * This module runs exclusively on the server (Next.js API routes).
- * The API key is read from process.env and never sent to the browser.
+ * Runs exclusively in Next.js API routes — the API key is never sent to the browser.
+ *
+ * Responsibilities:
+ * - Build a structured, pre-seeded prompt for Gemini 1.5 Flash
+ * - Call the Gemini REST API with a 10-second timeout
+ * - Validate the response with Zod before returning
+ * - Expose `buildFallbackAnalysis` for use when Gemini is unavailable
  */
 
-import { CheckInAnswers, CarbonAnalysis, EmissionCategory } from '@/types';
+import type { CheckInAnswers, CarbonAnalysis, EmissionCategory } from '@/types';
 import { parseCarbonAnalysis, stripCodeFences } from '@/lib/validators';
 import { estimateFootprint, getLargestContributor } from '@/lib/carbonEstimator';
 
 const GEMINI_API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
+/** Action suggestions keyed by emission category, used in the fallback path. */
+const FALLBACK_ACTIONS: Record<EmissionCategory, string> = {
+  Transportation: 'Try public transport or cycling for your next commute.',
+  Food:           'Swap one meat meal for a plant-based alternative.',
+  Electricity:    'Turn off standby devices and switch to LED bulbs.',
+  Shopping:       'Consider buying second-hand or delaying non-essential purchases.',
+  Waste:          'Sort your recycling carefully and reduce single-use plastics.',
+};
+
 /**
  * Builds a structured, constrained prompt for Gemini.
- * The prompt instructs the model to return ONLY valid JSON — no prose.
+ * The local estimate is injected so the model returns accurate numbers
+ * rather than hallucinating values.
+ *
+ * @param answers - The user's check-in answers.
+ * @returns A prompt string that instructs Gemini to return a strict JSON object.
  */
 function buildPrompt(answers: CheckInAnswers): string {
   const estimate = estimateFootprint(answers);
-  const largest = getLargestContributor(estimate.breakdown);
+  const largest  = getLargestContributor(estimate.breakdown);
 
   return `You are a carbon footprint analyst. Analyze this person's daily habits and return ONLY a valid JSON object — no markdown, no explanation, no prose.
 
@@ -51,26 +69,34 @@ Return this exact JSON structure with real values (no placeholders):
 }`;
 }
 
+/** Shape of the raw response from the Gemini REST API. */
+interface GeminiApiResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>;
+    };
+  }>;
+}
+
 /**
- * Calls Gemini to generate a structured carbon analysis.
- * Falls back to the local estimate if the AI call fails or returns invalid JSON.
+ * Calls Gemini 1.5 Flash to generate a structured carbon analysis.
  *
  * @param answers - The user's check-in answers.
- * @returns A validated CarbonAnalysis object.
- * @throws Error if the API key is missing (misconfiguration).
+ * @returns A Zod-validated {@link CarbonAnalysis} object.
+ * @throws {Error} If `GEMINI_API_KEY` is missing, the request fails, or the response is invalid.
  */
 export async function analyzeWithGemini(answers: CheckInAnswers): Promise<CarbonAnalysis> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
   const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body:    JSON.stringify({
       contents: [{ parts: [{ text: buildPrompt(answers) }] }],
       generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 512,
+        temperature:      0.2,
+        maxOutputTokens:  512,
         responseMimeType: 'application/json',
       },
     }),
@@ -78,15 +104,11 @@ export async function analyzeWithGemini(answers: CheckInAnswers): Promise<Carbon
   });
 
   if (!response.ok) {
-    const status = response.status;
-    if (status === 429) throw new Error('RATE_LIMITED');
-    throw new Error(`Gemini API error: ${status}`);
+    if (response.status === 429) throw new Error('RATE_LIMITED');
+    throw new Error(`Gemini API error: ${response.status}`);
   }
 
-  const data = await response.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
+  const data = await response.json() as GeminiApiResponse;
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   const cleaned = stripCodeFences(rawText);
 
@@ -107,29 +129,27 @@ export async function analyzeWithGemini(answers: CheckInAnswers): Promise<Carbon
 
 /**
  * Builds a local fallback analysis from the deterministic estimator.
- * Used when Gemini is unavailable or rate-limited.
+ * Used when Gemini is unavailable or rate-limited — guarantees the user
+ * always sees a result.
+ *
+ * @param answers - The user's check-in answers.
+ * @returns A fully-formed {@link CarbonAnalysis} derived from local estimates.
  */
 export function buildFallbackAnalysis(answers: CheckInAnswers): CarbonAnalysis {
   const estimate = estimateFootprint(answers);
-  const largest = getLargestContributor(estimate.breakdown);
-
-  const actionMap: Record<EmissionCategory, string> = {
-    Transportation: 'Try public transport or cycling for your next commute.',
-    Food:           'Swap one meat meal for a plant-based alternative.',
-    Electricity:    'Turn off standby devices and switch to LED bulbs.',
-    Shopping:       'Consider buying second-hand or delaying non-essential purchases.',
-    Waste:          'Sort your recycling carefully and reduce single-use plastics.',
-  };
+  const largest  = getLargestContributor(estimate.breakdown);
+  const largestKg = estimate.breakdown[largest];
+  const largestPct = Math.round((largestKg / Math.max(estimate.totalKg, 0.1)) * 100);
 
   return {
-    footprint: estimate.level,
+    footprint:          estimate.level,
     largestContributor: largest,
-    score: estimate.score,
-    summary: `Your ${largest.toLowerCase()} habits are your biggest carbon contributor today, accounting for roughly ${Math.round((estimate.breakdown[largest] / Math.max(estimate.totalKg, 0.1)) * 100)}% of your footprint.`,
+    score:              estimate.score,
+    summary: `Your ${largest.toLowerCase()} habits are your biggest carbon contributor today, accounting for roughly ${largestPct}% of your footprint.`,
     topActions: [
-      actionMap[largest],
+      FALLBACK_ACTIONS[largest],
       'Turn off standby devices and shorten your shower by 2 minutes.',
-      'Plan tomorrow\'s meals to include at least one plant-based option.',
+      "Plan tomorrow's meals to include at least one plant-based option.",
     ],
     weeklyGoal: `Reduce your ${largest.toLowerCase()} footprint by making one small change each day this week.`,
     categoryBreakdown: estimate.breakdown,

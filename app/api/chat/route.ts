@@ -1,12 +1,12 @@
 /**
  * POST /api/chat
  *
- * Proxies messages to Groq Llama 3.1 for the AI Coach feature.
+ * Proxies user messages to Groq Llama 3.1 for the AI Coach feature.
  *
  * Security:
- * - API key is server-only
- * - Input sanitised and length-bounded via Zod
- * - Rate limited per IP (20 req/min)
+ * - API key is read server-side only — never sent to the client
+ * - Input is length-bounded and validated with Zod before processing
+ * - Rate limited per IP address (20 req/min)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,9 +15,15 @@ import { chatWithGroq } from '@/services/groq';
 import { checkRateLimit } from '@/services/rateLimiter';
 import { RATE_LIMIT } from '@/lib/constants';
 
+/**
+ * Handles POST /api/chat.
+ *
+ * @param req - Incoming Next.js request.
+ * @returns JSON response with `{ response }` on success or `{ error }` on failure.
+ */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Rate limiting ────────────────────────────────────────────────
-  const ip = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'anonymous';
+  const ip      = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'anonymous';
   const allowed = checkRateLimit(`chat:${ip}`, RATE_LIMIT.MAX_CHAT_PER_MIN);
   if (!allowed) {
     return NextResponse.json(
@@ -49,16 +55,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const response = await chatWithGroq(message, history);
     return NextResponse.json({ response });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    const errMessage = err instanceof Error ? err.message : 'Unknown error';
 
-    if (message === 'RATE_LIMITED') {
+    if (errMessage === 'RATE_LIMITED') {
       return NextResponse.json(
         { error: 'AI is busy right now. Please try again in a moment.' },
         { status: 429 }
       );
     }
 
-    console.error('[/api/chat] Groq error:', message);
+    console.error('[/api/chat] Groq error:', errMessage);
     return NextResponse.json(
       { error: 'Could not reach the AI coach right now. Please try again.' },
       { status: 503 }

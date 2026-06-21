@@ -1,5 +1,9 @@
 'use client';
 
+/**
+ * @fileoverview Progress dashboard showing score trend, streak, CO₂ saved, and challenge count.
+ */
+
 import { memo, useMemo } from 'react';
 import {
   ResponsiveContainer,
@@ -9,21 +13,25 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
+  type TooltipProps,
 } from 'recharts';
 import { Flame, Award, CloudOff, TrendingDown } from 'lucide-react';
-import { useCarbonStore, selectProgressStats } from '@/store/useCarbonStore';
+import { useCarbonStore } from '@/store/useCarbonStore';
+import { computeProgressStats } from '@/lib/storage';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import EmptyState from '@/components/ui/EmptyState';
-import Skeleton from '@/components/ui/Skeleton';
+
+// ─── Sub-components ───────────────────────────────────────────────
 
 interface StatCardProps {
-  label:    string;
-  value:    string;
-  icon:     React.ReactNode;
-  sub?:     string;
-  color?:   string;
+  label:  string;
+  value:  string;
+  icon:   React.ReactNode;
+  sub?:   string;
+  color?: string;
 }
 
+/** A single KPI tile displaying a label, bold value, optional sub-text, and icon. */
 const StatCard = memo(({ label, value, icon, sub, color = 'text-brand-600' }: StatCardProps) => (
   <Card>
     <CardContent className="flex items-center gap-4 py-4">
@@ -40,8 +48,8 @@ const StatCard = memo(({ label, value, icon, sub, color = 'text-brand-600' }: St
 ));
 StatCard.displayName = 'StatCard';
 
-/** Recharts custom tooltip */
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
+/** Custom tooltip component for the Recharts LineChart. */
+function CustomTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 shadow-lg text-xs">
@@ -51,13 +59,23 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   );
 }
 
+// ─── Main Component ───────────────────────────────────────────────
+
 /**
- * Progress dashboard showing score trend, streak, saved CO₂, and challenges.
+ * Full progress dashboard: KPI grid and 7-day carbon score trend chart.
  */
 const ProgressDashboard = memo(() => {
-  const store = useCarbonStore();
-  const stats = useMemo(() => selectProgressStats(store), [store]);
-  const hasData = store.checkIns.length > 0;
+  const checkIns = useCarbonStore(s => s.checkIns);
+  const stats    = useMemo(() => computeProgressStats(checkIns), [checkIns]);
+  const hasData  = checkIns.length > 0;
+
+  const chartData = useMemo(
+    () => stats.weeklyScores.map(d => ({
+      date:  new Date(d.date).toLocaleDateString('en', { month: 'short', day: 'numeric' }),
+      score: d.score,
+    })),
+    [stats.weeklyScores]
+  );
 
   if (!hasData) {
     return (
@@ -70,11 +88,6 @@ const ProgressDashboard = memo(() => {
       </Card>
     );
   }
-
-  const chartData = stats.weeklyScores.map(d => ({
-    date:  new Date(d.date).toLocaleDateString('en', { month: 'short', day: 'numeric' }),
-    score: d.score,
-  }));
 
   return (
     <div className="flex flex-col gap-5">

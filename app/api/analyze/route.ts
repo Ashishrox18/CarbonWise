@@ -5,10 +5,10 @@
  * and returns a validated CarbonAnalysis JSON object.
  *
  * Security:
- * - API key is server-only (never sent to client)
+ * - API key is read server-side only — never sent to the client
  * - All inputs validated with Zod before processing
- * - Rate limited per IP (10 req/min)
- * - Falls back to local estimator on AI failure
+ * - Rate limited per IP address (10 req/min)
+ * - Falls back to the local estimator on AI failure
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -17,9 +17,15 @@ import { analyzeWithGemini, buildFallbackAnalysis } from '@/services/gemini';
 import { checkRateLimit } from '@/services/rateLimiter';
 import { RATE_LIMIT } from '@/lib/constants';
 
+/**
+ * Handles POST /api/analyze.
+ *
+ * @param req - Incoming Next.js request.
+ * @returns JSON with `{ analysis, provider, fallback }` on success or `{ error }` on failure.
+ */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Rate limiting ────────────────────────────────────────────────
-  const ip = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'anonymous';
+  const ip      = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'anonymous';
   const allowed = checkRateLimit(`analyze:${ip}`, RATE_LIMIT.MAX_AI_PER_MIN);
   if (!allowed) {
     return NextResponse.json(
@@ -46,13 +52,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const { answers } = parsed.data;
 
-  // ── AI Analysis (with fallback) ──────────────────────────────────
+  // ── AI Analysis (with local fallback) ────────────────────────────
   try {
     const analysis = await analyzeWithGemini(answers);
     return NextResponse.json({ analysis, provider: 'gemini', fallback: false });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[/api/analyze] Gemini failed, using fallback:', message);
+    const errMessage = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[/api/analyze] Gemini failed, using fallback:', errMessage);
 
     const fallback = buildFallbackAnalysis(answers);
     return NextResponse.json({ analysis: fallback, provider: 'local', fallback: true });
